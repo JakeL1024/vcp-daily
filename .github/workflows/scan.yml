@@ -2,7 +2,10 @@ name: Daily VCP Scan
 
 on:
   schedule:
-    - cron: '0 14 * * *'
+    # 港股收盤（台灣/香港時間 16:00，對應 UTC 時間 08:00）
+    - cron: '0 8 * * *'
+    # 美股收盤（台灣/香港時間 04:00，對應 UTC 時間 20:00）
+    - cron: '0 20 * * *'
   workflow_dispatch:
 
 jobs:
