@@ -24,7 +24,7 @@ jobs:
         run: |
           pip install yfinance pandas
 
-            - name: Run VCP scan
+      - name: Run VCP scan
         run: |
           python -c "
           import yfinance as yf
