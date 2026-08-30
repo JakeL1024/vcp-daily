@@ -1,4 +1,4 @@
-name: Daily VCP Scan
+name: Daily VCP and Stage 2 Scan
 
 on:
   schedule:
@@ -24,16 +24,15 @@ jobs:
         run: |
           pip install yfinance pandas
 
-      - name: Run VCP scan
+      - name: Run VCP and Stage 2 Scan
         run: |
           python -c "
           import yfinance as yf
           import pandas as pd
           from datetime import datetime
 
-          # 獲取當前的 UTC 時間
+          # 獲取當前的 UTC 時間以判斷盤別
           now = datetime.utcnow()
-          # 依據小時判斷盤別 (UTC 8點對應港股，20點對應美股)
           if now.hour == 8:
               session = '港股盤後'
           elif now.hour == 20:
@@ -41,45 +40,67 @@ jobs:
           else:
               session = '例行掃描'
 
+          # 你的完整股票清單（美股+港股）
           tickers = ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','BRK-B','JPM','V','UNH','XOM','JNJ','WMT','PG','MA','CVX','HD','ABBV','COST','AVGO','MRK','PEP','KO','TMO','NFLX','MCD','CSCO','ABT','DIS','VZ','ADBE','CRM','PFE','BAC','NKE','WFC','ACN','TXN','DHR','GS','LIN','IBM','ORCL','QCOM','HON','RTX','AXP','PM','CAT','0700.HK','9988.HK','3690.HK','1810.HK','9618.HK','1211.HK','0388.HK','1299.HK','0005.HK','0939.HK','0941.HK','2318.HK','3988.HK','2628.HK','0267.HK','1928.HK','0027.HK','0011.HK','0066.HK','0016.HK','0883.HK','1398.HK','2020.HK','0175.HK','1109.HK','0688.HK','1997.HK','0003.HK','0012.HK','0019.HK','0345.HK']
 
           vcp_candidates = []
+          stage2_candidates = []
 
           for ticker in tickers:
               try:
                   stock = yf.Ticker(ticker)
-                  hist = stock.history(period='6mo')
+                  hist = stock.history(period='1y')  # 獲取一年數據
 
-                  if hist.empty:
+                  if hist.empty or len(hist) < 200:
                       continue
 
-                  if len(hist) < 50:
-                      continue
+                  close = hist['Close']
+                  current_price = close.iloc[-1]
 
-                  recent_high = hist['High'].tail(50).max()
-                  recent_low = hist['Low'].tail(50).min()
-                  recent_range = (recent_high - recent_low) / recent_low
+                  # --- VCP 篩選邏輯 ---
+                  # 使用最近 6 個月數據
+                  hist_vcp = hist.tail(150)  # 約6個月交易日
+                  if len(hist_vcp) >= 50:
+                      recent_high = hist_vcp['High'].tail(50).max()
+                      recent_low = hist_vcp['Low'].tail(50).min()
+                      recent_range = (recent_high - recent_low) / recent_low
 
-                  prev_high = hist['High'].tail(50).head(25).max()
-                  prev_low = hist['Low'].tail(50).head(25).min()
-                  prev_range = (prev_high - prev_low) / prev_low
+                      prev_high = hist_vcp['High'].tail(50).head(25).max()
+                      prev_low = hist_vcp['Low'].tail(50).head(25).min()
+                      prev_range = (prev_high - prev_low) / prev_low
 
-                  if recent_range < prev_range and recent_range < 0.35:
-                      vcp_candidates.append(ticker)
+                      if recent_range < prev_range and recent_range < 0.35:
+                          vcp_candidates.append(ticker)
+
+                  # --- 第二階段趨勢模板邏輯 ---
+                  ma50 = close.rolling(window=50).mean().iloc[-1]
+                  ma150 = close.rolling(window=150).mean().iloc[-1]
+                  ma200 = close.rolling(window=200).mean().iloc[-1]
+
+                  # 條件 1: 股價 > 50 > 150 > 200
+                  condition1 = current_price > ma50 > ma150 > ma200
+                  # 條件 2: 距離52週高點 25% 以內
+                  high_52w = hist['High'].max()
+                  condition2 = (high_52w - current_price) / high_52w < 0.25
+                  # 條件 3: 價格高於50日均線 (簡化RS)
+                  condition3 = current_price > ma50
+
+                  if condition1 and condition2 and condition3:
+                      stage2_candidates.append(ticker)
 
               except Exception as e:
                   continue
 
-          # 組合訊息，明確顯示盤別
-          if vcp_candidates:
-              message = f'📊 {session} VCP 候選股：' + ', '.join(vcp_candidates)
-          else:
-              message = f'📊 {session} VCP：暫無符合條件'
+          # --- 組合兩份報告的訊息 ---
+          vcp_msg = f'📊 VCP 候選股：' + (', '.join(vcp_candidates) if vcp_candidates else '暫無符合條件')
+          stage2_msg = f'📈 第二階段趨勢股：' + (', '.join(stage2_candidates) if stage2_candidates else '暫無符合條件')
 
-          print(message)
+          full_message = f'【{session} 掃描報告】\n\n{vcp_msg}\n\n{stage2_msg}'
+
+          print(full_message)
 
           with open('result.txt', 'w') as f:
-              f.write(message)
+              f.write(full_message)
           "
 
       - name: Send to Telegram
