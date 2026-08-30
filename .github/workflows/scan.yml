@@ -29,10 +29,12 @@ jobs:
 
           vcp_candidates = []
 
-          for ticker in tickers:
-              try:
-                  stock = yf.Ticker(ticker)
-                  hist = stock.history(period='6mo')
+       for ticker in tickers:
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period='6mo')
+        if hist.empty:  # 如果沒數據就跳過
+            continue
 
                   if len(hist) < 50:
                       continue
