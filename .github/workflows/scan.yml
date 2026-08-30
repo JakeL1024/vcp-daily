@@ -1,0 +1,70 @@
+name: Daily VCP Scan
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install yfinance
+        run: |
+          pip install yfinance pandas
+
+      - name: Run VCP scan
+        run: |
+          python -c "
+import yfinance as yf
+import pandas as pd
+
+tickers = ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','BRK-B','JPM','V','UNH','XOM','JNJ','WMT','PG','MA','CVX','HD','ABBV','COST','AVGO','MRK','PEP','KO','TMO','NFLX','MCD','CSCO','ABT','DIS','VZ','ADBE','CRM','PFE','BAC','NKE','WFC','ACN','TXN','DHR','GS','LIN','IBM','ORCL','QCOM','HON','RTX','AXP','PM','CAT']
+
+vcp_candidates = []
+
+for ticker in tickers:
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period='6mo')
+        
+        if len(hist) < 50:
+            continue
+            
+        recent_high = hist['High'].tail(50).max()
+        recent_low = hist['Low'].tail(50).min()
+        recent_range = (recent_high - recent_low) / recent_low
+        
+        prev_high = hist['High'].tail(50).head(25).max()
+        prev_low = hist['Low'].tail(50).head(25).min()
+        prev_range = (prev_high - prev_low) / prev_low
+        
+        if recent_range < prev_range and recent_range < 0.25:
+            vcp_candidates.append(ticker)
+            
+    except:
+        pass
+
+if vcp_candidates:
+    message = '📊 今日 VCP 候選股：' + ', '.join(vcp_candidates)
+else:
+    message = '📊 今日 VCP：暫無符合條件'
+
+print(message)
+
+with open('result.txt', 'w') as f:
+    f.write(message)
+"
+
+      - name: Send to Telegram
+        run: |
+          MESSAGE=$(cat result.txt)
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+          -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+          -d text="$MESSAGE"
